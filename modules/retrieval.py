@@ -110,7 +110,7 @@ class DocumentRetriever:
     Operates 100% locally with zero external API calls.
     """
 
-    def __init__(self, chunks: List[Dict[str, Any]], min_relevance_threshold: float = 0.05):
+    def __init__(self, chunks: List[Dict[str, Any]], min_relevance_threshold: float = 0.025):
         self.chunks = chunks
         self.min_relevance_threshold = min_relevance_threshold
         self.vectorizer: Optional[TfidfVectorizer] = None
@@ -135,15 +135,6 @@ class DocumentRetriever:
     def query(self, query_text: str, top_k: int = 3) -> Dict[str, Any]:
         """
         Executes query against the indexed chunks.
-
-
-        Returns:
-            dict containing:
-                - query: str
-                - top_chunks: list of dicts with chunk metadata and similarity score
-                - highest_score: float
-                - has_sufficient_evidence: bool
-                - synthesized_answer: str
         """
         clean_query = query_text.strip()
         if not clean_query:
@@ -198,10 +189,20 @@ class DocumentRetriever:
         """
         Synthesizes a truthful extractive answer from top chunks without hallucination.
         """
-        if not has_evidence or not retrieved_chunks:
+        if not retrieved_chunks:
+            return "No passages available in the document."
+
+        if not has_evidence:
+            top_chunk = retrieved_chunks[0]
+            if top_chunk["score"] > 0:
+                return (
+                    f"Relevant contextual passage from Page {top_chunk['page_num']}:\n"
+                    f"\"{top_chunk['text'][:320]}...\"\n\n"
+                    f"[Moderate match score: {top_chunk['score']}. For more specific results, include key nouns from the paper in your query.]"
+                )
             return (
                 "The answer could not be established with sufficient confidence from the available text. "
-                f"The highest retrieval similarity score ({retrieved_chunks[0]['score'] if retrieved_chunks else 0.0}) "
+                f"The highest retrieval similarity score ({top_chunk['score']}) "
                 f"is below the relevance threshold ({self.min_relevance_threshold}). "
                 "Try refining your search terms using specific keywords from the paper."
             )

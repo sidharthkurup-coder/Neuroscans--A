@@ -231,15 +231,20 @@ with st.sidebar:
     )
 
     if uploaded_files:
+        newly_added = False
         for uf in uploaded_files:
             if uf.name not in st.session_state["documents"]:
-                load_paper_into_session(uf.name, uf.getvalue())
+                if load_paper_into_session(uf.name, uf.getvalue()):
+                    st.session_state["active_doc"] = uf.name
+                    newly_added = True
+        if newly_added:
+            st.rerun()
 
     # Active paper selection
     doc_keys = list(st.session_state["documents"].keys())
     if doc_keys:
         if st.session_state["active_doc"] not in doc_keys:
-            st.session_state["active_doc"] = doc_keys[0]
+            st.session_state["active_doc"] = doc_keys[-1]
 
         selected = st.selectbox(
             "Active Research Paper",
@@ -300,6 +305,27 @@ pdf_data = current_doc["pdf_data"]
 summary = current_doc["summary"]
 retriever = current_doc["retriever"]
 insights = current_doc["insights"]
+
+# Active Document Banner
+col_act1, col_act2 = st.columns([5, 1])
+with col_act1:
+    st.markdown(
+        f"""
+        <div style="background:#161b22; border:1px solid #30363d; border-radius:6px; padding:0.6rem 1rem; margin-bottom:1rem; font-size:0.9rem;">
+            📄 <strong>Active Document:</strong> <span style="color:#58a6ff; font-weight:600;">{active_name}</span> &nbsp;|&nbsp; 
+            <strong>Pages:</strong> {pdf_data['page_count']} &nbsp;|&nbsp; 
+            <strong>Words:</strong> {pdf_data['total_words']:,} &nbsp;|&nbsp; 
+            <strong>Indexed Chunks:</strong> {len(current_doc['chunks'])}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+with col_act2:
+    if st.button("🗑️ Clear", help="Remove this paper from the workspace"):
+        del st.session_state["documents"][active_name]
+        remaining = list(st.session_state["documents"].keys())
+        st.session_state["active_doc"] = remaining[0] if remaining else None
+        st.rerun()
 
 # --- Top Navigation Tabs ---
 tab_summary, tab_qa, tab_compare, tab_insights, tab_eval, tab_inspector = st.tabs([

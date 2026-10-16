@@ -1,9 +1,11 @@
 """
 PDF Processor Module for NeuroScan AI
 Handles robust, page-aware text extraction and metadata tracking using PyMuPDF (fitz).
+Includes column-aware reading order sorting, de-hyphenation, and ligature normalization.
 """
 
 import io
+import re
 from typing import Dict, List, Any, Union
 import fitz  # PyMuPDF
 
@@ -11,6 +13,63 @@ import fitz  # PyMuPDF
 class PDFProcessingError(Exception):
     """Custom exception raised when PDF extraction encounters fatal corruption or format issues."""
     pass
+
+
+def _clean_and_order_page_text(page: fitz.Page) -> str:
+    """
+    Extracts text blocks with column-aware ordering (handling dual-column IEEE/ACM/arXiv layouts),
+    rejoins hyphenated linebreaks, and normalizes typography ligatures.
+    """
+    blocks = page.get_text("blocks")
+    if not blocks:
+        raw_fallback = page.get_text("text").strip()
+        return raw_fallback
+
+    # Filter text blocks (block_type 0 = text)
+    text_blocks = [b for b in blocks if len(b) >= 5 and b[6] == 0 and b[4].strip()]
+    if not text_blocks:
+        return page.get_text("text").strip()
+
+    # Detect multi-column layout by assessing horizontal distribution
+    rect = page.rect
+    mid_x = (rect.x0 + rect.x1) / 2.0
+
+    left_blocks = [b for b in text_blocks if b[2] <= (mid_x + 35)]
+    right_blocks = [b for b in text_blocks if b[0] >= (mid_x - 35)]
+
+    # If substantial content exists on both sides of median, sort columns independently
+    if len(left_blocks) >= 2 and len(right_blocks) >= 2:
+        left_sorted = sorted(left_blocks, key=lambda b: (b[1], b[0]))
+        right_sorted = sorted(right_blocks, key=lambda b: (b[1], b[0]))
+        
+        assigned_ids = {id(b) for b in left_blocks + right_blocks}
+        spanning_blocks = [b for b in text_blocks if id(b) not in assigned_ids]
+        
+        top_cut = min(left_sorted[0][1], right_sorted[0][1])
+        top_spanning = sorted([b for b in spanning_blocks if b[1] < top_cut], key=lambda b: b[1])
+        bottom_spanning = sorted([b for b in spanning_blocks if b[1] >= top_cut], key=lambda b: b[1])
+        
+        ordered_blocks = top_spanning + left_sorted + right_sorted + bottom_spanning
+    else:
+        # Standard top-to-bottom reading order
+        ordered_blocks = sorted(text_blocks, key=lambda b: (b[1], b[0]))
+
+    raw_text = "\n\n".join(b[4].strip() for b in ordered_blocks)
+
+    # De-hyphenate words split at line endings (e.g. "atten-\ntion" -> "attention")
+    cleaned = re.sub(r'(\b\w+)-\s*\n\s*(\w+\b)', r'\1\2', raw_text)
+
+    # Normalize typographic ligatures and non-breaking spaces
+    cleaned = (
+        cleaned.replace("\ufb01", "fi")
+        .replace("\ufb02", "fl")
+        .replace("\ufb03", "ffi")
+        .replace("\ufb04", "ffl")
+        .replace("\xa0", " ")
+        .replace("\r\n", "\n")
+    )
+
+    return cleaned.strip()
 
 
 def extract_pdf_data(
@@ -59,7 +118,6 @@ def extract_pdf_data(
             raise PDFProcessingError(f"Unsupported file source type: {type(file_source)}")
 
         if doc.is_encrypted:
-            # Try empty password
             if not doc.authenticate(""):
                 raise PDFProcessingError(
                     f"Document '{doc_name}' is password-protected or encrypted. Please provide an unencrypted PDF."
@@ -86,9 +144,8 @@ def extract_pdf_data(
 
         for page_idx in range(page_count):
             page = doc[page_idx]
-            page_text = page.get_text("text").strip()
+            page_text = _clean_and_order_page_text(page)
             
-            # Count words and chars
             words = page_text.split()
             word_count = len(words)
             char_count = len(page_text)
