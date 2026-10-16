@@ -480,7 +480,7 @@ with tab_compare:
             st.markdown("#### 📊 Side-by-Side Dimension Table")
             st.dataframe(
                 comp_res["comparison_df"],
-                use_container_width=True,
+                width="stretch",
                 hide_index=True
             )
 
@@ -588,7 +588,7 @@ with tab_eval:
         )
 
     st.markdown("#### 🔬 Detailed Benchmark Queries & Query-Level Results")
-    st.dataframe(metrics["results_df"], use_container_width=True, hide_index=True)
+    st.dataframe(metrics["results_df"], width="stretch", hide_index=True)
 
     # Metric Explanations
     with st.expander("ℹ️ Scientific Definitions of Retrieval Metrics"):
